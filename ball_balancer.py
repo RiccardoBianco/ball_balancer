@@ -3,6 +3,8 @@ import parameters as p
 import inv_kin as ik
 import cv2
 import numpy as np
+import pigpio
+
 
 # inizializzazione della telecamera (0 per quella standard)
 cap = cv2.VideoCapture(0)
@@ -24,6 +26,13 @@ lastError_y = 0
 
 x_center = 0
 y_center = 0
+
+# Connessione al daemon pigpiod
+pi = pigpio.pi()
+if not pi.connected:
+    print("Impossibile connettersi al deamon pigpiod")
+    exit()
+
 
 
 
@@ -72,37 +81,54 @@ def PID(x_input, y_input, x_des, y_des):
     previous_time = current_time
     
     return x_output, y_output
-    
-    
-def limitate_servo(pos):
-    if pos>p.sup_lim_servo:
-        pos = p.sup_lim_servo
-    if pos<p.inf_lim_servo:
-        pos = p.inf_lim_servo
-    return pos
 
-def move_servo(servo_number, teta):
-    pass # muovere il motore i-esimo all'angolo teta desiderato
+def set_servo_to_zero():
+    # Configura i pin GPIO come uscite PWM
+    for pin in p.SERVO_PINS:
+        pi.set_mode(pin, pigpio.OUTPUT)
+        pi.set_servo_pulsewidth(pin, 0)  # Spegni il servo all'inizio
+  
+    
+def limitate_servo(angle):
+    if angle>p.sup_lim_servo:
+        angle = p.sup_lim_servo
+    if angle<p.inf_lim_servo:
+        angle = p.inf_lim_servo
+    return angle
 
-def move_all_servo(teta1, teta2, teta3, teta4):
+# Funzione per convertire un angolo in duty cycle
+def angle_to_duty_cycle(angle):
+    return (np.rad2deg(angle) / 180.0) * 10 + 2.5
+
+
+def move_servo(pin, angle):
+    duty_cycle = angle_to_duty_cycle(angle)
+    pi.set_servo_pulsewidth(pin, duty_cycle * 1000)  # Imposta il pulse width in microsecondi
+
+
+def move_all_servo(angles):
     # limito il movimento dei motori entro il limite superiore e inferiore
-    teta1 = limitate_servo(teta1)
-    teta2 = limitate_servo(teta2)
-    teta3 = limitate_servo(teta3)
-    teta4 = limitate_servo(teta4)
-    
+    for angle in angles: 
+        angle = limitate_servo(angle) # TODO verificare se funziona l'assegnazione in questo modo
+
     # muovo i 4 motori nella posizione desiderata
-    move_servo(1, teta1)
-    move_servo(2, teta2)
-    move_servo(3, teta3)
-    move_servo(4, teta4)
+    for i in range(len(p.SERVO_PINS)):
+        try:
+            move_servo(p.SERVO_PINS[i], angles[i])
+        except:
+            print("Impossibile muovere il servo all'angolo desiderato")
+        finally:
+            # Spegni i servomotori
+            for pin in p.SERVO_PINS:
+                pi.set_servo_pulsewidth(pin, p.start_angle) # riporto tutti i motori a zero
+
+    # Termina la connessione al daemon pigpiod
+    pi.stop()
     return
         
 def ball_tracker(color):
     global x_center
     global y_center
-    x = 0
-    y = 0
     
      # Leggi un nuovo frame
     ret, frame = cap.read()
@@ -115,6 +141,7 @@ def ball_tracker(color):
     # Calcola il centro dell'immagine
     x_center = larghezza // 2
     y_center = altezza // 2
+    x, y = x_center, y_center
     
     # Converti il frame da BGR a HSV (spazio dei colori più adatto per il riconoscimento del colore)
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -159,6 +186,8 @@ def ball_tracker(color):
 
 def main():
     cnt = 0
+    set_servo_to_zero()
+
     while True: # finche arrivano dati
         # leggi i dati dalla telecamera
         x_input, y_input = ball_tracker(p.color)
@@ -180,10 +209,10 @@ def main():
         # trasforma l'output x e y in angoli di rotazione pitch e roll (Inverse Kinematics)
         pitch = x_output # eventualmente trasformata in qualche modo
         roll = y_output # eventualemente trasformata in qualche modo
-        teta1, teta2, teta3, teta4 = ik.pitch_roll_to_four_motor_angles(pitch, roll)
+        angles = ik.pitch_roll_to_four_motor_angles(pitch, roll)
         
         # muovo i motori alla posizione desiderata
-        move_all_servo(teta1, teta2, teta3, teta4)
+        move_all_servo(angles)
         
         # Esci dal loop premendo 'q'
         if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -193,5 +222,12 @@ def main():
     # release delle risorse
     cap.release()
     cv2.destroyAllWindows()
+
+    # Spegni i servomotori
+    for pin in p.SERVO_PINS:
+        pi.set_servo_pulsewidth(pin, p.start_angle)
+
+    # Termina la connessione al daemon pigpiod
+    pi.stop()
     
 main()

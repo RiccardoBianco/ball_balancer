@@ -38,5 +38,4 @@ def pitch_roll_to_four_motor_angles(pitch, roll, dz=p.dz):
     teta3 = np.pi - (np.arcsin(p3[3, 0]/np.linalg.norm(p3))  +  np.arccos(((np.linalg.norm(p3))**2 + p.l1**2 - p.l2**2)/(2*np.linalg.norm(p3)*p.l1)))
     teta4 = np.pi - (np.arcsin(p4[3, 0]/np.linalg.norm(p4))  +  np.arccos(((np.linalg.norm(p4))**2 + p.l1**2 - p.l2**2)/(2*np.linalg.norm(p4)*p.l1)))
     return teta1, teta2, teta3, teta4
-# t1, t2, t3, t4 = pitch_roll_to_four_motor_angles(0, 0)
-# print(f"t1: {t1}\nt2: {t2}\nt3: {t3}\nt4: {t4}\n")
+

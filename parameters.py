@@ -1,3 +1,7 @@
+import numpy as np
+
+color = 'yellow'
+
 a = 10
 b = 10
 f = 10
@@ -6,11 +10,17 @@ l1 = 10
 l2 = 10
 dz = 10
 
+# imposto i motori tra 90 e 180 
+# TODO da verificare i valori corretti degli angoli
+sup_lim_servo = np.pi
+inf_lim_servo = np.pi/2
 
-sup_lim_servo = 0
-inf_lim_servo = 0
 
-color = 'yellow'
+
+
+# Impostazione dei pin GPIO per i servomotori
+SERVO_PINS = [17, 18, 27, 22] # TODO da modificare in base ai pin utilizzati
+start_angle = np. pi # TODO da impostare
 
 # non so se servono, magari più avanti
 x_des = 0
