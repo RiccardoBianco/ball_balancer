@@ -1,6 +1,6 @@
 import numpy as np
 
-color = 'yellow'
+color = 'blue' #l'arancione viene riconosciuto come blu, devo aggiustare i parametri della telecamera
 
 a = 10
 b = 10

@@ -4,13 +4,19 @@ import inv_kin as ik
 import cv2
 import numpy as np
 import pigpio
+from picamera2 import Picamera2
 
 
-# inizializzazione della telecamera (0 per quella standard)
-cap = cv2.VideoCapture(0)
-if not cap.isOpened():
-    print("Errore nell'apertura della videocamera")
-    exit()
+# Inizializza Picamera2
+picam2 = Picamera2()
+
+# Configura la camera per la preview
+preview_config = picam2.create_preview_configuration(main={"size": (640, 480)})
+picam2.configure(preview_config)
+
+# Avvia la camera
+picam2.start()
+
 
 # parametri del PID
 Kp = 0
@@ -28,10 +34,11 @@ x_center = 0
 y_center = 0
 
 # Connessione al daemon pigpiod
-pi = pigpio.pi()
-if not pi.connected:
-    print("Impossibile connettersi al deamon pigpiod")
-    exit()
+# pi = pigpio.pi()
+# if not pi.connected:
+#     print("Impossibile connettersi al deamon pigpiod")
+#     exit()
+
 
 
 
@@ -82,11 +89,11 @@ def PID(x_input, y_input, x_des, y_des):
     
     return x_output, y_output
 
-def set_servo_to_zero():
-    # Configura i pin GPIO come uscite PWM
-    for pin in p.SERVO_PINS:
-        pi.set_mode(pin, pigpio.OUTPUT)
-        pi.set_servo_pulsewidth(pin, 0)  # Spegni il servo all'inizio
+# def set_servo_to_zero():
+#     # Configura i pin GPIO come uscite PWM
+#     for pin in p.SERVO_PINS:
+#         pi.set_mode(pin, pigpio.OUTPUT)
+#         pi.set_servo_pulsewidth(pin, 0)  # Spegni il servo all'inizio
   
     
 def limitate_servo(angle):
@@ -101,40 +108,39 @@ def angle_to_duty_cycle(angle):
     return (np.rad2deg(angle) / 180.0) * 10 + 2.5
 
 
-def move_servo(pin, angle):
-    duty_cycle = angle_to_duty_cycle(angle)
-    pi.set_servo_pulsewidth(pin, duty_cycle * 1000)  # Imposta il pulse width in microsecondi
+# def move_servo(pin, angle):
+#     duty_cycle = angle_to_duty_cycle(angle)
+#     pi.set_servo_pulsewidth(pin, duty_cycle * 1000)  # Imposta il pulse width in microsecondi
 
 
-def move_all_servo(angles):
-    # limito il movimento dei motori entro il limite superiore e inferiore
-    for angle in angles: 
-        angle = limitate_servo(angle) # TODO verificare se funziona l'assegnazione in questo modo
+# def move_all_servo(angles):
+#     # limito il movimento dei motori entro il limite superiore e inferiore
+#     for angle in angles: 
+#         angle = limitate_servo(angle) # TODO verificare se funziona l'assegnazione in questo modo
 
-    # muovo i 4 motori nella posizione desiderata
-    for i in range(len(p.SERVO_PINS)):
-        try:
-            move_servo(p.SERVO_PINS[i], angles[i])
-        except:
-            print("Impossibile muovere il servo all'angolo desiderato")
-        finally:
-            # Spegni i servomotori
-            for pin in p.SERVO_PINS:
-                pi.set_servo_pulsewidth(pin, p.start_angle) # riporto tutti i motori a zero
+#     # muovo i 4 motori nella posizione desiderata
+#     for i in range(len(p.SERVO_PINS)):
+#         try:
+#             move_servo(p.SERVO_PINS[i], angles[i])
+#         except:
+#             print("Impossibile muovere il servo all'angolo desiderato")
+#         finally:
+#             # Spegni i servomotori
+#             for pin in p.SERVO_PINS:
+#                 pi.set_servo_pulsewidth(pin, p.start_angle) # riporto tutti i motori a zero
 
-    # Termina la connessione al daemon pigpiod
-    pi.stop()
-    return
+#     # Termina la connessione al daemon pigpiod
+#     pi.stop()
+#     return
         
 def ball_tracker(color):
     global x_center
     global y_center
     
      # Leggi un nuovo frame
-    ret, frame = cap.read()
-    if not ret:
-        print("Errore nella lettura del frame")
-        return -1, -1
+    
+    frame = picam2.capture_array()
+
     
     altezza, larghezza, _ = frame.shape
 
@@ -146,16 +152,18 @@ def ball_tracker(color):
     # Converti il frame da BGR a HSV (spazio dei colori più adatto per il riconoscimento del colore)
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     
-     # Definisci il range di colori arancioni nella scala HSV
+    # Definisci il range di colori arancioni nella scala HSV
     if color == 'orange':
-        lower = np.array([5, 150, 150])
-        upper = np.array([15, 255, 255])
-        bgr_color = (0, 165, 255)
+        lower = np.array([10, 100, 100])
+        upper = np.array([20, 255, 255])
     elif color == 'yellow':
         # Definisci il range di colori gialli nella scala HSV
         lower = np.array([20, 100, 100])
         upper = np.array([30, 255, 255])
-        bgr_color = (0, 255, 255)
+    elif color == 'blue': # TODO capire perché funziona con il blu se la pallina è arancione
+        lower = np.array([90, 50, 50])
+        upper = np.array([130, 255, 255])
+
     
     # Applica una maschera per ottenere solo i pixel nell'intervallo di colori gialli
     mask = cv2.inRange(hsv, lower, upper)
@@ -177,7 +185,7 @@ def ball_tracker(color):
             cv2.circle(frame, center, 1, (255, 0, 255), 2)
     
     # Mostra il frame risultante
-    cv2.imshow('Rilevamento Pallina Gialla', frame)
+    cv2.imshow('Rilevamento Pallina', frame)
     return round(x, 2), round(y, 2)
     
 
@@ -186,7 +194,7 @@ def ball_tracker(color):
 
 def main():
     cnt = 0
-    set_servo_to_zero()
+    # set_servo_to_zero()
 
     while True: # finche arrivano dati
         # leggi i dati dalla telecamera
@@ -212,22 +220,23 @@ def main():
         angles = ik.pitch_roll_to_four_motor_angles(pitch, roll)
         
         # muovo i motori alla posizione desiderata
-        move_all_servo(angles)
+        # move_all_servo(angles)
         
         # Esci dal loop premendo 'q'
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
         
-    
-    # release delle risorse
-    cap.release()
+
+    # Chiude tutte le finestre
     cv2.destroyAllWindows()
+    picam2.stop()
 
-    # Spegni i servomotori
-    for pin in p.SERVO_PINS:
-        pi.set_servo_pulsewidth(pin, p.start_angle)
+    # # Spegni i servomotori
+    # for pin in p.SERVO_PINS:
+    #     pi.set_servo_pulsewidth(pin, p.start_angle)
 
-    # Termina la connessione al daemon pigpiod
-    pi.stop()
-    
-main()
+    # # Termina la connessione al daemon pigpiod
+    # pi.stop()
+
+if __name__ == "__main__":
+    main()
