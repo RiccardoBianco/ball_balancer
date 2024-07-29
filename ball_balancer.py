@@ -3,8 +3,17 @@ import parameters as p
 import inv_kin as ik
 import cv2
 import numpy as np
-import pigpio
 from picamera2 import Picamera2
+import board
+import busio
+from adafruit_pca9685 import PCA9685
+
+
+# Inizializza PCA9685 servo driver
+i2c = busio.I2C(board.SCL, board.SDA)
+pca = PCA9685(i2c)
+pca.frequency = 50  # Frequenza per servomotori (50 Hz)
+
 
 
 # Inizializza Picamera2
@@ -91,7 +100,7 @@ def PID(x_input, y_input, x_des, y_des):
 
 # def set_servo_to_zero():
 #     # Configura i pin GPIO come uscite PWM
-#     for pin in p.SERVO_PINS:
+#     for pin in p.PCA9685_PINS:
 #         pi.set_mode(pin, pigpio.OUTPUT)
 #         pi.set_servo_pulsewidth(pin, 0)  # Spegni il servo all'inizio
   
@@ -108,30 +117,27 @@ def angle_to_duty_cycle(angle):
     return (np.rad2deg(angle) / 180.0) * 10 + 2.5
 
 
-# def move_servo(pin, angle):
-#     duty_cycle = angle_to_duty_cycle(angle)
-#     pi.set_servo_pulsewidth(pin, duty_cycle * 1000)  # Imposta il pulse width in microsecondi
+def map_value(x, A, B, C, D):
+    return C + (x - A) * (D - C) / (B - A)
+
+def release_all_motors(pca):
+    for i in range(16):  # PCA9685 ha 16 canali (da 0 a 15)
+        pca.channels[i].duty_cycle = 0
 
 
-# def move_all_servo(angles):
-#     # limito il movimento dei motori entro il limite superiore e inferiore
-#     for angle in angles: 
-#         angle = limitate_servo(angle) # TODO verificare se funziona l'assegnazione in questo modo
+def move_servo(pin, angle):
+    duty_cycle = map_value(angle, p.inf_lim_servo,p.sup_lim_servo, p.inf_lim_duty_cycle, p.sup_lim_duty_cycle)
+    pca.channels[pin].duty_cycle = round(duty_cycle)
 
-#     # muovo i 4 motori nella posizione desiderata
-#     for i in range(len(p.SERVO_PINS)):
-#         try:
-#             move_servo(p.SERVO_PINS[i], angles[i])
-#         except:
-#             print("Impossibile muovere il servo all'angolo desiderato")
-#         finally:
-#             # Spegni i servomotori
-#             for pin in p.SERVO_PINS:
-#                 pi.set_servo_pulsewidth(pin, p.start_angle) # riporto tutti i motori a zero
+def move_all_servo(angles):
+    # limito il movimento dei motori entro il limite superiore e inferiore
+    for angle in angles: 
+        angle = limitate_servo(angle) # TODO verificare se funziona l'assegnazione in questo modo
 
-#     # Termina la connessione al daemon pigpiod
-#     pi.stop()
-#     return
+    # muovo i 4 motori nella posizione desiderata
+    for i in range(len(p.PCA9685_PINS)):
+        move_servo(p.PCA9685_PINS[i], angles[i])
+    return
         
 def ball_tracker(color):
     global x_center
@@ -199,8 +205,8 @@ def main():
     while True: # finche arrivano dati
         # leggi i dati dalla telecamera
         x_input, y_input = ball_tracker(p.color)
-        if x_input==-1 or y_input==-1:
-            break
+        # if x_input==-1 or y_input==-1:
+        #     break
         cnt +=1
         print(f"{cnt} --> x = {x_input}; y = {y_input}")
 
@@ -220,8 +226,13 @@ def main():
         angles = ik.pitch_roll_to_four_motor_angles(pitch, roll)
         
         # muovo i motori alla posizione desiderata
-        # move_all_servo(angles)
-        
+        try:
+            move_all_servo(angles)
+        except:
+            print("Impossibile muovere i motori nella posizione indicata")
+            release_all_motors(pca)
+
+
         # Esci dal loop premendo 'q'
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
@@ -231,12 +242,8 @@ def main():
     cv2.destroyAllWindows()
     picam2.stop()
 
-    # # Spegni i servomotori
-    # for pin in p.SERVO_PINS:
-    #     pi.set_servo_pulsewidth(pin, p.start_angle)
-
-    # # Termina la connessione al daemon pigpiod
-    # pi.stop()
+    # riporto i motori in posizione normale
+    release_all_motors(pca)
 
 if __name__ == "__main__":
     main()

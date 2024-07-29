@@ -12,15 +12,13 @@ dz = 10
 
 # imposto i motori tra 90 e 180 
 # TODO da verificare i valori corretti degli angoli
-sup_lim_servo = np.pi
-inf_lim_servo = np.pi/2
+inf_lim_servo = 0
+sup_lim_servo = np.pi/2
 
-
-
+inf_lim_duty_cycle, sup_lim_duty_cycle = 2500, 5350  # Intevallo del duty cycle del servomotore
 
 # Impostazione dei pin GPIO per i servomotori
-SERVO_PINS = [17, 18, 27, 22] # TODO da modificare in base ai pin utilizzati
-start_angle = np. pi # TODO da impostare
+PCA9685_PINS = [0, 1, 2, 3] # TODO da modificare in base ai pin utilizzati
 
 # non so se servono, magari più avanti
 x_des = 0
