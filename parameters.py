@@ -10,6 +10,7 @@ l1 = 10
 l2 = 10
 dz = 10
 
+
 # imposto i motori tra 90 e 180 
 # TODO da verificare i valori corretti degli angoli
 inf_lim_servo = 0
@@ -23,8 +24,8 @@ inf_dc_4, sup_dc_4 = 1550, 4725 # 12
 # Impostazione dei pin GPIO per i servomotori
 PCA9685_PINS = [0, 4, 8, 12] # TODO da modificare in base ai pin utilizzati
 
-inf_dc = [1425, 1650, 1725, 1550]
-sup_dc = [4700, 4850, 4925, 4725]
+inf_dc = [1425, 1650, 1550, 1725]
+sup_dc = [4700, 4850, 4725, 4925]
 
 # non so se servono, magari più avanti
 x_des = 0
