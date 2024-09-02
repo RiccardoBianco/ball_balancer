@@ -1,6 +1,5 @@
 import time
 import parameters as p
-import inv_kin as ik
 import cv2
 import numpy as np
 from picamera2 import Picamera2
@@ -26,6 +25,9 @@ picam2.configure(preview_config)
 # Avvia la camera
 picam2.start()
 
+#######
+# PID #
+#######
 
 # parametri del PID
 Kp = 0
@@ -41,16 +43,6 @@ lastError_y = 0
 
 x_center = 0
 y_center = 0
-
-# Connessione al daemon pigpiod
-# pi = pigpio.pi()
-# if not pi.connected:
-#     print("Impossibile connettersi al deamon pigpiod")
-#     exit()
-
-
-
-
 
 def PID_x(input, desired, current_time):
     global cumError_x
@@ -98,13 +90,51 @@ def PID(x_input, y_input, x_des, y_des):
     
     return x_output, y_output
 
-# def set_servo_to_zero():
-#     # Configura i pin GPIO come uscite PWM
-#     for pin in p.PCA9685_PINS:
-#         pi.set_mode(pin, pigpio.OUTPUT)
-#         pi.set_servo_pulsewidth(pin, 0)  # Spegni il servo all'inizio
-  
+######################
+# INVERSE KINEMATICS #
+######################
+
+def pitch_roll_to_four_motor_angles(pitch, roll, dz=p.dz):
+    # si può modificare dz nel caso si voglia modificare l'altezza
+    alfa = roll
+    beta = pitch
+    Tse = np.array([
+        [np.cos(beta),    np.sin(alfa)*np.sin(beta),    np.cos(alfa)*np.sin(beta),    0],
+        [0,               np.cos(alfa),                 -np.sin(alfa),                0],
+        [-np.sin(beta),   np.sin(alfa)*np.cos(beta),    np.cos(alfa)*np.cos(beta),   dz],
+        [0,               0,                            0,                            1]
+        ])
+    b1 = np.array([[-p.a], [-p.b], [0], [1]])
+    b2 = np.array([[p.a], [-p.b], [0], [1]])
+    b3 = np.array([[p.a], [p.b], [0], [1]])
+    b4 = np.array([[-p.a], [p.b], [0], [1]])
     
+    aE1 = np.array([[-p.f], [-p.g], [0], [1]])
+    aE2 = np.array([[p.f], [-p.g], [0], [1]])
+    aE3 = np.array([[p.f], [p.g], [0], [1]])
+    aE4 = np.array([[-p.f], [p.g], [0], [1]])
+    
+    a1 = np.dot(Tse, aE1)
+    a2 = np.dot(Tse, aE2)
+    a3 = np.dot(Tse, aE3)
+    a4 = np.dot(Tse, aE4)
+    
+    p1 = a1-b1
+    p2 = a2-b2 
+    p3 = a3-b3
+    p4 = a4-b4
+    
+    teta1 = np.pi - (np.arcsin(p1[3, 0]/np.linalg.norm(p1))  +  np.arccos(((np.linalg.norm(p1))**2 + p.l1**2 - p.l2**2)/(2*np.linalg.norm(p1)*p.l1)))
+    teta2 = np.pi - (np.arcsin(p2[3, 0]/np.linalg.norm(p2))  +  np.arccos(((np.linalg.norm(p2))**2 + p.l1**2 - p.l2**2)/(2*np.linalg.norm(p2)*p.l1)))
+    teta3 = np.pi - (np.arcsin(p3[3, 0]/np.linalg.norm(p3))  +  np.arccos(((np.linalg.norm(p3))**2 + p.l1**2 - p.l2**2)/(2*np.linalg.norm(p3)*p.l1)))
+    teta4 = np.pi - (np.arcsin(p4[3, 0]/np.linalg.norm(p4))  +  np.arccos(((np.linalg.norm(p4))**2 + p.l1**2 - p.l2**2)/(2*np.linalg.norm(p4)*p.l1)))
+    return teta1, teta2, teta3, teta4
+
+
+################
+# SERVO MOTORS #
+################
+
 def limitate_servo(angle):
     if angle>p.sup_lim_servo:
         angle = p.sup_lim_servo
@@ -112,33 +142,31 @@ def limitate_servo(angle):
         angle = p.inf_lim_servo
     return angle
 
-# Funzione per convertire un angolo in duty cycle
-def angle_to_duty_cycle(angle):
-    return (np.rad2deg(angle) / 180.0) * 10 + 2.5
-
-
 def map_value(x, A, B, C, D):
     return C + (x - A) * (D - C) / (B - A)
 
+def complementary_angle(angle):
+    return np.pi/2 - angle
+
 def release_all_motors(pca):
-    for i in range(16):  # PCA9685 ha 16 canali (da 0 a 15)
-        pca.channels[i].duty_cycle = 0
+    for i in range(4):
+        angle = np.pi/2
+        pca.channels[p.PCA9685_PINS[i]].duty_cycle = round(map_value(angle, p.A, p.B, p.inf_dc[i], p.sup_dc[i]))
 
-
-def move_servo(pin, angle):
-    duty_cycle = map_value(angle, p.inf_lim_servo,p.sup_lim_servo, p.inf_lim_duty_cycle, p.sup_lim_duty_cycle)
-    pca.channels[pin].duty_cycle = round(duty_cycle)
-
-def move_all_servo(angles):
+def move_all_servos(angles):
     # limito il movimento dei motori entro il limite superiore e inferiore
-    for angle in angles: 
-        angle = limitate_servo(angle) # TODO verificare se funziona l'assegnazione in questo modo
-
-    # muovo i 4 motori nella posizione desiderata
-    for i in range(len(p.PCA9685_PINS)):
-        move_servo(p.PCA9685_PINS[i], angles[i])
+    for i in range(len(angles)): 
+        angle = angles[i]
+        angle = limitate_servo(angle) #limita tra 0 e pi/2
+        angle = complementary_angle(angle) # calcola il complementare per come sono montati i motori
+        pca.channels[p.PCA9685_PINS[i]].duty_cycle = round(map_value(angle, p.A, p.B, p.inf_dc[i], p.sup_dc[i]))
     return
-        
+
+
+##########
+# CAMERA #
+##########
+
 def ball_tracker(color):
     global x_center
     global y_center
@@ -197,10 +225,8 @@ def ball_tracker(color):
 
     
 
-
 def main():
     cnt = 0
-    # set_servo_to_zero()
 
     while True: # finche arrivano dati
         # leggi i dati dalla telecamera
@@ -220,14 +246,16 @@ def main():
         # calcola il PID con x e y
         x_output, y_output = PID(x_input, y_input, x_center, y_center)
         
+        
         # trasforma l'output x e y in angoli di rotazione pitch e roll (Inverse Kinematics)
         pitch = x_output # eventualmente trasformata in qualche modo
         roll = y_output # eventualemente trasformata in qualche modo
-        angles = ik.pitch_roll_to_four_motor_angles(pitch, roll)
+        angles = pitch_roll_to_four_motor_angles(pitch, roll)
         
+
         # muovo i motori alla posizione desiderata
         try:
-            move_all_servo(angles)
+            move_all_servos(angles)
         except:
             print("Impossibile muovere i motori nella posizione indicata")
             release_all_motors(pca)
@@ -244,6 +272,8 @@ def main():
 
     # riporto i motori in posizione normale
     release_all_motors(pca)
+
+
 
 if __name__ == "__main__":
     main()

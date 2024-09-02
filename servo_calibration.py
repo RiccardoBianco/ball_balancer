@@ -8,7 +8,7 @@ from adafruit_pca9685 import PCA9685
 i2c = busio.I2C(board.SCL, board.SDA)
 pca = PCA9685(i2c)
 pca.frequency = 50  # Frequenza per servomotori (50 Hz)
-servo_channel = 0
+servo_channel = 12
 while True:
     duty = float(input("Duty cycle: "))
     duty = round(duty)
